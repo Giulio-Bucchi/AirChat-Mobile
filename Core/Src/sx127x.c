@@ -27,9 +27,7 @@ uint8_t SX127x_ReadRegister(SX127x_t *lora, uint8_t reg)
     uint8_t rxBuf[2] = {0};
     
     HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-    HAL_Delay(1); // Small delay for NSS setup time
     HAL_SPI_TransmitReceive(lora->hspi, txBuf, rxBuf, 2, HAL_MAX_DELAY);
-    HAL_Delay(1); // Small delay before releasing NSS
     HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
     
     return rxBuf[1];
@@ -46,9 +44,7 @@ void SX127x_WriteRegister(SX127x_t *lora, uint8_t reg, uint8_t value)
     uint8_t txBuf[2] = {reg | 0x80, value};
     
     HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_RESET);
-    HAL_Delay(1); // Small delay for NSS setup time
     HAL_SPI_Transmit(lora->hspi, txBuf, 2, HAL_MAX_DELAY);
-    HAL_Delay(1); // Small delay before releasing NSS
     HAL_GPIO_WritePin(lora->nss_port, lora->nss_pin, GPIO_PIN_SET);
 }
 
@@ -59,9 +55,9 @@ void SX127x_WriteRegister(SX127x_t *lora, uint8_t reg, uint8_t value)
 void SX127x_Reset(SX127x_t *lora)
 {
     HAL_GPIO_WritePin(lora->rst_port, lora->rst_pin, GPIO_PIN_RESET);
-    HAL_Delay(10);
+    HAL_Delay(20);   // datasheet: tRESET min 100µs, usiamo 20ms per sicurezza
     HAL_GPIO_WritePin(lora->rst_port, lora->rst_pin, GPIO_PIN_SET);
-    HAL_Delay(10);
+    HAL_Delay(150);  // datasheet: tREADY max 10ms dopo il reset, usiamo 150ms
 }
 
 /**

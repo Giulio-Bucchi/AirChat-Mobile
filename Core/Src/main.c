@@ -76,13 +76,9 @@ void UART_Print(const char *msg) {
 
 // Callback when data is received from LoRa
 void OnDataReceived(char *msg, uint8_t len) {
-    UART_Print("Utente 2: ");  // Fixed: Arduino is User 2
+    UART_Print("Utente 2: ");
     UART_Print(msg);
     UART_Print("\r\n");
-    
-    // Debug info
-    snprintf(uart_buf, sizeof(uart_buf), "[DEBUG] Ricevuto %d byte via LoRa\r\n", len);
-    UART_Print(uart_buf);
 }
 
 // Callback when ACK is received (optional, silent)
@@ -142,44 +138,33 @@ int main(void)
   lora.dio0_port = DI0_GPIO_Port;
   lora.dio0_pin = DI0_Pin;
 
-  UART_Print("Inizializzazione LoRa...\r\n");
-
   // Proper reset sequence with longer delays
   HAL_GPIO_WritePin(lora.rst_port, lora.rst_pin, GPIO_PIN_RESET);
-  HAL_Delay(50);  // Hold reset longer
+  HAL_Delay(50);
   HAL_GPIO_WritePin(lora.rst_port, lora.rst_pin, GPIO_PIN_SET);
-  HAL_Delay(200); // Wait longer for module to boot
+  HAL_Delay(200);
 
   // Check version
   uint8_t version = SX127x_ReadRegister(&lora, REG_VERSION);
-  snprintf(uart_buf, sizeof(uart_buf), "Chip SX127x: 0x%02X ", version);
-  UART_Print(uart_buf);
-  
-  if (version == 0x12) {
-      UART_Print("OK!\r\n");
-  } else {
-      UART_Print("ERRORE!\r\n");
-      UART_Print("Verifica connessioni hardware.\r\n");
+  if (version != 0x12) {
+      UART_Print("ERRORE: modulo LoRa non risponde. Verifica connessioni.\r\n");
       Error_Handler();
   }
 
   // Initialize LoRa at 433 MHz
-  if (SX127x_Begin(&lora, 433E6)) {
-      UART_Print("LoRa 433 MHz: OK\r\n");
-  } else {
-      UART_Print("LoRa init: ERRORE\r\n");
+  if (!SX127x_Begin(&lora, 433E6)) {
+      UART_Print("ERRORE: inizializzazione LoRa fallita.\r\n");
       Error_Handler();
   }
 
   // Set sync word to match Arduino (0xF3)
   SX127x_SetSyncWord(&lora, 0xF3);
-  UART_Print("Sync Word: 0xF3\r\n");
 
   // Initialize protocol
   LoRa_Protocol_Init(&protocol, &lora);
   protocol.data_received_callback = OnDataReceived;
   protocol.ack_received_callback = OnAckReceived;
-  
+
   UART_Print("\r\n=== SISTEMA PRONTO ===\r\n");
   UART_Print("Digita un messaggio e premi INVIO.\r\n\r\n");
 
@@ -215,27 +200,21 @@ int main(void)
                 if (uart_rx_index > 0) {
                     // Null-terminate
                     uart_rx_buffer[uart_rx_index] = '\0';
-                    
-                    // Debug
-                    snprintf(uart_buf, sizeof(uart_buf), "\r\n[DEBUG] Invio '%s' (%d byte) via LoRa\r\n", 
-                             uart_rx_buffer, uart_rx_index);
-                    UART_Print(uart_buf);
-                    
+
                     // Send via LoRa
                     bool sent = LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
-                    
+
                     if (sent) {
-                        // Echo - STM32 is User 1
                         UART_Print("Utente 1: ");
                         UART_Print(uart_rx_buffer);
                         UART_Print("\r\n\r\n");
                     } else {
                         UART_Print("[ERRORE] Invio fallito\r\n\r\n");
                     }
-                    
+
                     // Reset buffer
                     uart_rx_index = 0;
-                    
+
                     // Back to RX mode
                     SX127x_Receive(&lora);
                     break; // Exit read loop after sending
@@ -251,17 +230,13 @@ int main(void)
             if (uart_rx_index > 0 && (HAL_GetTick() - start_time) > 50) {
                 // 50ms timeout with partial data - might be missing newline
                 uart_rx_buffer[uart_rx_index] = '\0';
-                
-                snprintf(uart_buf, sizeof(uart_buf), "\r\n[DEBUG] Invio (timeout) '%s' (%d byte)\r\n", 
-                         uart_rx_buffer, uart_rx_index);
-                UART_Print(uart_buf);
-                
+
                 LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
-                
+
                 UART_Print("Utente 1: ");
                 UART_Print(uart_rx_buffer);
                 UART_Print("\r\n\r\n");
-                
+
                 uart_rx_index = 0;
                 SX127x_Receive(&lora);
                 break;
@@ -345,7 +320,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16; // APB1=42MHz → ~2.6MHz, entro i 10MHz del SX127x
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -445,10 +420,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|RST_Pin|DI0_Pin, GPIO_PIN_RESET);
+  /* LD2 e DI0 partono LOW; RST parte HIGH (non tenere il modulo in reset) */
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|DI0_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(RST_GPIO_Port, RST_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
+  /* NSS parte HIGH (chip deselezionato) per non corrompere SPI all'avvio */
+  HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
