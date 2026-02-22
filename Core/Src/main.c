@@ -54,6 +54,7 @@ LoRa_Protocol_t protocol;
 char uart_buf[256];
 char uart_rx_buffer[256];
 volatile uint16_t uart_rx_index = 0;
+volatile uint32_t uart_last_rx_tick = 0;  // timestamp ultimo byte ricevuto
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -185,25 +186,19 @@ int main(void)
     // 1. ASCOLTO DALLA RADIO (framed packets)
     LoRa_Protocol_ProcessIncoming(&protocol);
     
-    // 2. INVIO DA SERIALE (framed packets)
-    // Read bytes one by one in a tight loop to catch burst transmissions
-    uint8_t inChar;
-    uint32_t start_time = HAL_GetTick();
-    
-    // Try to read for up to 100ms to catch all bytes in a burst
-    while ((HAL_GetTick() - start_time) < 100) {
-        if (HAL_UART_Receive(&huart2, &inChar, 1, 1) == HAL_OK) {
-            // Got a byte
-            start_time = HAL_GetTick(); // Reset timer on each byte
-            
+    // 2. INVIO DA SERIALE / BLE (framed packets)
+    // Il BLE (AT-09) ha MTU=20 byte: spezza i messaggi in chunk da 20B.
+    // uart_rx_buffer e uart_last_rx_tick sono PERSISTENTI tra i giri del loop,
+    // così l'accumulo sopravvive finché il messaggio è completo.
+    {
+        uint8_t inChar;
+        // Leggi tutti i byte disponibili ora (non bloccante: timeout 1ms)
+        while (HAL_UART_Receive(&huart2, &inChar, 1, 1) == HAL_OK) {
+            uart_last_rx_tick = HAL_GetTick();
             if (inChar == '\n' || inChar == '\r') {
                 if (uart_rx_index > 0) {
-                    // Null-terminate
                     uart_rx_buffer[uart_rx_index] = '\0';
-
-                    // Send via LoRa
                     bool sent = LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
-
                     if (sent) {
                         UART_Print("Utente 1: ");
                         UART_Print(uart_rx_buffer);
@@ -211,41 +206,35 @@ int main(void)
                     } else {
                         UART_Print("[ERRORE] Invio fallito\r\n\r\n");
                     }
-
-                    // Reset buffer
                     uart_rx_index = 0;
-
-                    // Back to RX mode
+                    uart_last_rx_tick = 0;
                     SX127x_Receive(&lora);
-                    break; // Exit read loop after sending
                 }
             } else if (inChar >= 32 && inChar < 127) {
-                // Accumulate printable character
                 if (uart_rx_index < sizeof(uart_rx_buffer) - 1) {
                     uart_rx_buffer[uart_rx_index++] = inChar;
                 }
             }
-        } else {
-            // No byte available, check if we have data to send
-            if (uart_rx_index > 0 && (HAL_GetTick() - start_time) > 50) {
-                // 50ms timeout with partial data - might be missing newline
-                uart_rx_buffer[uart_rx_index] = '\0';
-
-                LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
-
+        }
+        // Timeout 200ms: nessun byte nuovo ma buffer non vuoto
+        // → messaggio completo (BLE non manda '\n', aspetta silenzio)
+        if (uart_rx_index > 0 &&
+            uart_last_rx_tick > 0 &&
+            (HAL_GetTick() - uart_last_rx_tick) > 200) {
+            uart_rx_buffer[uart_rx_index] = '\0';
+            bool sent = LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
+            if (sent) {
                 UART_Print("Utente 1: ");
                 UART_Print(uart_rx_buffer);
                 UART_Print("\r\n\r\n");
-
-                uart_rx_index = 0;
-                SX127x_Receive(&lora);
-                break;
+            } else {
+                UART_Print("[ERRORE] Invio fallito\r\n\r\n");
             }
+            uart_rx_index = 0;
+            uart_last_rx_tick = 0;
+            SX127x_Receive(&lora);
         }
     }
-    
-    // Small delay
-    HAL_Delay(10);
   }
   /* USER CODE END 3 */
 }

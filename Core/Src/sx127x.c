@@ -10,6 +10,7 @@
 
 /* Private variables */
 static uint8_t _packetIndex = 0;
+static uint8_t _packetLength = 0;  // salvato al momento della ricezione
 static uint8_t _implicitHeaderMode = 0;
 
 /* Private function prototypes */
@@ -361,31 +362,32 @@ void SX127x_WriteByte(SX127x_t *lora, uint8_t byte)
 int SX127x_ParsePacket(SX127x_t *lora)
 {
     uint8_t irqFlags = SX127x_ReadRegister(lora, REG_IRQ_FLAGS);
-    
-    // Clear IRQ flags
-    SX127x_WriteRegister(lora, REG_IRQ_FLAGS, irqFlags);
-    
+
+    // Pulisci tutti i flag IRQ subito
+    SX127x_WriteRegister(lora, REG_IRQ_FLAGS, 0xFF);
+
     if ((irqFlags & IRQ_RX_DONE_MASK) && !(irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK)) {
-        // Received a packet
         _packetIndex = 0;
-        
-        // Read packet length
-        uint8_t packetLength = SX127x_ReadRegister(lora, REG_RX_NB_BYTES);
-        
-        // Set FIFO address to current RX address
-        SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR, 
-                            SX127x_ReadRegister(lora, REG_FIFO_RX_CURRENT_ADDR));
-        
-        // Put back in RX mode
-        SX127x_Idle(lora);
-        
-        return packetLength;
-    } else if (SX127x_ReadRegister(lora, REG_OP_MODE) != (MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS)) {
-        // Not in RX mode, set it
+
+        // Salva la lunghezza ORA, prima di cambiare modalità operativa
+        _packetLength = SX127x_ReadRegister(lora, REG_RX_NB_BYTES);
+
+        // Punta FIFO_ADDR_PTR all'inizio del pacchetto ricevuto
+        SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR,
+                             SX127x_ReadRegister(lora, REG_FIFO_RX_CURRENT_ADDR));
+
+        // NON chiamare Idle/Sleep qui: il FIFO è accessibile in RX continuous
+        // Il cambio di modo azzera REG_RX_NB_BYTES e corrompe la lettura
+
+        return _packetLength;
+
+    } else if ((SX127x_ReadRegister(lora, REG_OP_MODE) & 0x07) != MODE_RX_CONTINUOUS) {
+        // Non siamo in RX: ripristina
+        SX127x_WriteRegister(lora, REG_FIFO_RX_BASE_ADDR, 0);
         SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR, 0);
         SX127x_WriteRegister(lora, REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS);
     }
-    
+
     return 0;
 }
 
@@ -396,7 +398,9 @@ int SX127x_ParsePacket(SX127x_t *lora)
   */
 int SX127x_Available(SX127x_t *lora)
 {
-    return (SX127x_ReadRegister(lora, REG_RX_NB_BYTES) - _packetIndex);
+    // Usa _packetLength salvato al momento della ricezione
+    // NON rileggere REG_RX_NB_BYTES: in standby vale 0 o un valore casuale
+    return (_packetLength - _packetIndex);
 }
 
 /**
@@ -458,5 +462,10 @@ float SX127x_PacketSnr(SX127x_t *lora)
   */
 void SX127x_Receive(SX127x_t *lora)
 {
+    // Resetta i puntatori FIFO prima di entrare in RX
+    // (dopo una TX il puntatore è sporco e il prossimo pacchetto verrebbe
+    //  scritto in una posizione sbagliata nel FIFO da 256 byte)
+    SX127x_WriteRegister(lora, REG_FIFO_RX_BASE_ADDR, 0);
+    SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR, 0);
     SX127x_WriteRegister(lora, REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS);
 }
