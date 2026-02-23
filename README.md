@@ -25,14 +25,15 @@ PC <-> STM32 <-> LoRa <-> Arduino <-> BLE <-> iPhone
 
 ### Photos
 
+
 #### Arduino with LoRa and module BLE AT-09
-![Arduino with LoRa](Arduino_Lora.png)
+<img src="Arduino_Lora.png" alt="Arduino with LoRa" width="350"/>
 
 #### STM32 with LoRa
-![STM32 with LoRa](STM32_Lora.png)
+<img src="STM32_Lora.png" alt="STM32 with LoRa" width="350"/>
 
 #### STM32CubeMX Project Configuration
-![STM32CubeMX Project](STM32_ioc.png)
+<img src="STM32_ioc.png" alt="STM32CubeMX Project" width="350"/>
 
 The project uses the default pin configuration. The main peripherals utilized are SPI2 and USART2, while the NSS, RST, and DIO0 pins are configured as GPIO outputs.
 
