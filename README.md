@@ -17,10 +17,23 @@ PC <-> STM32 <-> LoRa <-> Arduino <-> BLE <-> iPhone
 - **Dual Interface:** Supports input from both Serial Monitor (PC) and Smartphone App.
 
 
+
 ## Hardware Connection Diagram
 
 - STM32 <-> LoRa module
 - Arduino <-> LoRa module and BLE module (AT-09)
+
+### Photos
+
+#### Arduino with LoRa and module BLE AT-09
+![Arduino with LoRa](Arduino_Lora.png)
+
+#### STM32 with LoRa
+![STM32 with LoRa](STM32_Lora.png)
+
+#### STM32CubeMX Project Configuration
+![STM32CubeMX Project](STM32_ioc.png)
+
 
 ## Development Notes
 
